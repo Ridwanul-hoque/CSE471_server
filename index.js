@@ -41,6 +41,8 @@ async function run() {
     const usersCollection = client.db("PawkieDB").collection("users")
     const animalCollection = client.db("PawkieDB").collection("animal")
     const petsCollection = client.db("PawkieDB").collection("pets");
+    const prescriptionsCollection = client.db("PawkieDB").collection("prescriptions");
+    const queueCollection = client.db("PawkieDB").collection("doctorQueue");
     const missingPostsCollection = client.db("PawkieDB").collection("missingPosts");
     const rescuePostsCollection = client.db("PawkieDB").collection("rescuePosts");
     const productsCollection = client.db("PawkieDB").collection("products");
@@ -84,6 +86,17 @@ async function run() {
       }
       next()
     }
+
+    const verifyDoctor = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const isDoctor = user?.role === 'doctor';
+      if (!isDoctor) {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      next();
+    };
 
 
 
@@ -179,6 +192,31 @@ async function run() {
         console.error('Error updating user data:', error);
         res.status(500).send({ message: 'Internal server error' });
       }
+    });
+    // doctor token
+    app.get('/users/doctor/:email', verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'unauthorized access' });
+      }
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      let doctor = false;
+      if (user) {
+        doctor = user?.role === 'doctor';
+      }
+      res.send({ doctor });
+    });
+    app.patch('/users/doctor/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: 'doctor'
+        }
+      };
+      const result = await usersCollection.updateOne(filter, updatedDoc);
+      res.send(result);
     });
 
 
@@ -462,10 +500,39 @@ async function run() {
     // ============= INVENTORY MANAGEMENT ===============
 
     // Create new product
-    app.post('/api/products', upload.single('image'), async (req, res) => {
+    // app.post('/api/products', upload.single('image'), async (req, res) => {
+    //   try {
+    //     const { name, description, price, category, stockQuantity } = req.body;
+    //     const imageFile = req.file;
+
+    //     if (!name || !price || !stockQuantity) {
+    //       return res.status(400).json({ message: 'Name, price and stock quantity are required' });
+    //     }
+
+    //     const product = {
+    //       name,
+    //       description,
+    //       price: parseFloat(price),
+    //       category,
+    //       stockQuantity: parseInt(stockQuantity),
+    //       image: imageFile ? `/uploads/${imageFile.filename}` : null,
+    //       createdAt: new Date(),
+    //       updatedAt: new Date()
+    //     };
+
+    //     const result = await productsCollection.insertOne(product);
+    //     res.status(201).json({
+    //       message: 'Product added successfully',
+    //       productId: result.insertedId
+    //     });
+    //   } catch (error) {
+    //     console.error('Error adding product:', error);
+    //     res.status(500).json({ message: 'Server error' });
+    //   }
+    // });
+    app.post('/api/products', async (req, res) => {
       try {
-        const { name, description, price, category, stockQuantity } = req.body;
-        const imageFile = req.file;
+        const { name, description, price, category, stockQuantity, image } = req.body;
 
         if (!name || !price || !stockQuantity) {
           return res.status(400).json({ message: 'Name, price and stock quantity are required' });
@@ -477,7 +544,7 @@ async function run() {
           price: parseFloat(price),
           category,
           stockQuantity: parseInt(stockQuantity),
-          image: imageFile ? `/uploads/${imageFile.filename}` : null,
+          image: image || null, // image is a URL from ImgBB
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -487,11 +554,13 @@ async function run() {
           message: 'Product added successfully',
           productId: result.insertedId
         });
+
       } catch (error) {
         console.error('Error adding product:', error);
         res.status(500).json({ message: 'Server error' });
       }
     });
+
 
     // Get all products
     app.get('/api/products', async (req, res) => {
@@ -840,9 +909,134 @@ async function run() {
 
 
 
+
+
+    // Get users in queue for a doctor
+    app.get('/api/queue', verifyToken, async (req, res) => {
+      const { doctorId } = req.query;
+      try {
+        const queue = await queueCollection.find({ doctorId, status: 'waiting' }).toArray();
+        res.send(queue); // ✅ Must send an array
+      } catch (error) {
+        console.error("Error fetching queue:", error);
+        res.status(500).json({ message: 'Error fetching queue' });
+      }
+    });
+    // Add this to your Express server
+    app.post('/api/queue', verifyToken, async (req, res) => {
+      const { email, petName, petAge, problem } = req.body;
+
+      try {
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).json({ message: 'User not found' });
+        }
+
+        const queueData = {
+          userId: user._id,
+          petName,
+          petAge,
+          problem,
+          status: 'waiting',
+          createdAt: new Date()
+        };
+
+        const result = await queueCollection.insertOne(queueData);
+        res.status(201).json({ insertedId: result.insertedId });
+      } catch (err) {
+        console.error('❌ Error adding to queue:', err);
+        res.status(500).json({ message: 'Failed to add to queue' });
+      }
+    });
+
+
+    // Doctor accepts user from queue
+    app.post('/api/queue/accept', verifyToken, async (req, res) => {
+      const { doctorId, userId } = req.body;
+
+      try {
+        const result = await queueCollection.findOneAndUpdate(
+          {
+            doctorId,
+            _id: new ObjectId(userId),
+            status: 'waiting'
+          },
+          {
+            $set: {
+              status: 'accepted',
+              acceptedAt: new Date()
+            }
+          },
+          { returnDocument: 'after' }
+        );
+
+        if (!result.value) {
+          return res.status(404).json({ message: "Queue item not found or already accepted" });
+        }
+
+        res.status(200).json(result.value);
+      } catch (err) {
+        console.error("❌ Error accepting user from queue:", err);
+        res.status(500).json({ message: "Server error while accepting user from queue" });
+      }
+    });
+
+
+
+    //Doctor submit prescription
+    app.post('/api/prescriptions', async (req, res) => {
+      const { doctorId, userId, text } = req.body;
+      try {
+        const prescription = {
+          doctorId,
+          userId,
+          text,
+          createdAt: new Date()
+        };
+        const result = await prescriptionsCollection.insertOne(prescription);
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ message: 'Error saving prescription' });
+      }
+    });
+
+
+
+    app.get('/api/prescriptions', async (req, res) => {
+      try {
+        const result = await prescriptionsCollection.find({}).toArray(); // fetch everything
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ message: 'Error fetching prescriptions' });
+      }
+    });
+
+
+    //Queue bookappointment
+    app.post('/api/queue', async (req, res) => {
+      const queueData = req.body;
+
+      try {
+        const result = await queueCollection.insertOne(queueData);
+        res.status(201).json({ message: 'Added to queue', id: result.insertedId });
+      } catch (error) {
+        console.error("Queue insert error:", error);
+        res.status(500).json({ message: "Failed to add to queue" });
+      }
+    });
+
+
+
+
+
+
+
+
+
+
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();/
