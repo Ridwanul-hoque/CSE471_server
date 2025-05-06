@@ -49,6 +49,7 @@ async function run() {
     const ordersCollection = client.db("PawkieDB").collection("orders");
     const paymentsCollection = client.db("PawkieDB").collection("payments");
     const adoptedPets = client.db("PawkieDB").collection("adoptedPets")
+    const doctorCollection = client.db("PawkieDB").collection("doctors")
 
     // jwt
     app.post('/jwt', async (req, res) => {
@@ -1022,6 +1023,18 @@ async function run() {
       } catch (error) {
         console.error("Queue insert error:", error);
         res.status(500).json({ message: "Failed to add to queue" });
+      }
+    });
+
+
+    // POST /api/doctors
+    app.post('/doctors', async (req, res) => {
+      try {
+        const doctor = req.body; // expects name, image, institution, graduationYear, specialty, experience
+        const result = await doctorCollection.insertOne(doctor);
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: 'Failed to save doctor info' });
       }
     });
 
