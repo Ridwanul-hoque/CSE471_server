@@ -50,6 +50,7 @@ async function run() {
     const paymentsCollection = client.db("PawkieDB").collection("payments");
     const adoptedPets = client.db("PawkieDB").collection("adoptedPets")
     const doctorCollection = client.db("PawkieDB").collection("doctors")
+    const linkCollection = client.db("PawkieDB").collection("link")
 
     // jwt
     app.post('/jwt', async (req, res) => {
@@ -913,19 +914,86 @@ async function run() {
 
 
     // Get users in queue for a doctor
-    app.get('/api/queue', verifyToken, async (req, res) => {
-      const { doctorId } = req.query;
+    // app.get('/api/queue', verifyToken, async (req, res) => {
+    //   const { doctorId } = req.query;
+    //   try {
+    //     const queue = await queueCollection.find({ doctorId, status: 'waiting' }).toArray();
+    //     res.send(queue); // ✅ Must send an array
+    //   } catch (error) {
+    //     console.error("Error fetching queue:", error);
+    //     res.status(500).json({ message: 'Error fetching queue' });
+    //   }
+    // });
+    // app.get('/api/queue', async (req, res) => {
+    //   try {
+    //     const doctorEmail = req.query.email;
+    //     if (!doctorEmail) {
+    //       return res.status(400).send({ message: 'Doctor email is required' });
+    //     }
+
+    //     const query = { doctorEmail: doctorEmail };
+    //     const patients = await queueCollection.find(query).toArray();
+    //     res.send(patients);
+    //   } catch (error) {
+    //     console.error("Failed to fetch patient queue:", error);
+    //     res.status(500).send({ message: 'Internal Server Error' });
+    //   }
+    // });
+
+
+
+    // Add this to your Express server
+    // app.post('/api/queue', verifyToken, async (req, res) => {
+    //   const { email, petName, petAge, problem } = req.body;
+
+    //   try {
+    //     const user = await usersCollection.findOne({ email });
+    //     if (!user) {
+    //       return res.status(404).json({ message: 'User not found' });
+    //     }
+
+    //     const queueData = {
+    //       userId: user._id,
+    //       petName,
+    //       petAge,
+    //       problem,
+    //       status: 'waiting',
+    //       createdAt: new Date()
+    //     };
+
+    //     const result = await queueCollection.insertOne(queueData);
+    //     res.status(201).json({ insertedId: result.insertedId });
+    //   } catch (err) {
+    //     console.error('❌ Error adding to queue:', err);
+    //     res.status(500).json({ message: 'Failed to add to queue' });
+    //   }
+    // });
+
+    app.get('/api/queue', async (req, res) => {
       try {
-        const queue = await queueCollection.find({ doctorId, status: 'waiting' }).toArray();
-        res.send(queue); // ✅ Must send an array
-      } catch (error) {
-        console.error("Error fetching queue:", error);
-        res.status(500).json({ message: 'Error fetching queue' });
+        const data = await queueCollection.find().toArray();
+        res.json(data);
+      } catch (err) {
+        res.status(500).json({ message: 'Failed to fetch queue' });
       }
     });
-    // Add this to your Express server
+
+
+    app.delete('/api/queue/:id', async (req, res) => {
+      try {
+        const result = await queueCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        if (result.deletedCount === 1) {
+          res.json({ message: 'Deleted from queue' });
+        } else {
+          res.status(404).json({ message: 'Queue item not found' });
+        }
+      } catch (err) {
+        res.status(500).json({ message: 'Failed to delete from queue' });
+      }
+    });
+
     app.post('/api/queue', verifyToken, async (req, res) => {
-      const { email, petName, petAge, problem } = req.body;
+      const { email, petName, petAge, problem, doctorEmail } = req.body;
 
       try {
         const user = await usersCollection.findOne({ email });
@@ -938,15 +1006,16 @@ async function run() {
           petName,
           petAge,
           problem,
+          doctorEmail,
           status: 'waiting',
           createdAt: new Date()
         };
 
-        const result = await queueCollection.insertOne(queueData);
+        const result = await queueCollection.insertOne(queueData); // 👈 use doctorQueue
         res.status(201).json({ insertedId: result.insertedId });
       } catch (err) {
-        console.error('❌ Error adding to queue:', err);
-        res.status(500).json({ message: 'Failed to add to queue' });
+        console.error('❌ Error adding to doctorQueue:', err);
+        res.status(500).json({ message: 'Failed to add to doctor queue' });
       }
     });
 
@@ -982,6 +1051,17 @@ async function run() {
       }
     });
 
+    app.post('/api/prescriptions', async (req, res) => {
+      const data = req.body;
+      try {
+        const result = await prescriptionsCollection.insertOne(data);
+        res.status(201).json({ insertedId: result.insertedId });
+      } catch (err) {
+        res.status(500).json({ message: 'Failed to store prescription' });
+      }
+    });
+
+
 
 
     //Doctor submit prescription
@@ -1003,14 +1083,41 @@ async function run() {
 
 
 
-    app.get('/api/prescriptions', async (req, res) => {
-      try {
-        const result = await prescriptionsCollection.find({}).toArray(); // fetch everything
-        res.send(result);
-      } catch (error) {
-        res.status(500).json({ message: 'Error fetching prescriptions' });
-      }
-    });
+    // app.get('/api/prescriptions', async (req, res) => {
+    //   try {
+    //     const result = await prescriptionsCollection.find({}).toArray(); // fetch everything
+    //     res.send(result);
+    //   } catch (error) {
+    //     res.status(500).json({ message: 'Error fetching prescriptions' });
+    //   }
+    // });
+
+    // app.patch('/api/queue/:id/prescription', verifyToken, async (req, res) => {
+    //   const id = req.params.id;
+    //   const { title, description } = req.body;
+
+    //   try {
+    //     const queueEntry = await doctorQueue.findOne({ _id: new ObjectId(id) });
+
+    //     if (!queueEntry) {
+    //       return res.status(404).json({ message: 'Queue entry not found' });
+    //     }
+
+    //     await prescriptionsCollection.insertOne({
+    //       email: queueEntry.email,
+    //       prescription: { title, description },
+    //       createdAt: new Date()
+    //     });
+
+    //     await doctorQueue.deleteOne({ _id: new ObjectId(id) });
+
+    //     res.status(200).json({ message: 'Prescription saved and queue entry deleted' });
+    //   } catch (err) {
+    //     console.error("❌ Error processing prescription:", err);
+    //     res.status(500).json({ message: 'Internal server error' });
+    //   }
+    // });
+
 
 
     //Queue bookappointment
@@ -1030,13 +1137,56 @@ async function run() {
     // POST /api/doctors
     app.post('/doctors', async (req, res) => {
       try {
-        const doctor = req.body; // expects name, image, institution, graduationYear, specialty, experience
-        const result = await doctorCollection.insertOne(doctor);
+        const doctorData = req.body;
+        const result = await doctorCollection.insertOne(doctorData);
         res.send(result);
-      } catch (err) {
-        res.status(500).send({ message: 'Failed to save doctor info' });
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to add doctor info' });
       }
     });
+
+
+    app.get('/doctors', async (req, res) => {
+      try {
+        const doctors = await doctorCollection.find().toArray();
+        res.status(200).json(doctors);
+      } catch (err) {
+        console.error('❌ Error fetching doctors:', err);
+        res.status(500).json({ message: 'Failed to fetch doctors' });
+      }
+    });
+
+
+
+
+    app.post('/api/links', async (req, res) => {
+      const linkData = req.body;
+      const { userId, doctorEmail, link } = linkData;
+
+      // Ensure required fields are present
+      if (!userId || !doctorEmail || !link) {
+        return res.send({ message: 'Missing required fields', insertedId: null });
+      }
+
+      const query = {
+        userId: userId,
+        doctorEmail: doctorEmail,
+        link: link
+      };
+
+      const existingLink = await linkCollection.findOne(query);
+
+      if (existingLink) {
+        return res.send({ message: 'Link already exists', insertedId: null });
+      }
+
+      linkData.createdAt = new Date(); // Add timestamp
+
+      const result = await linkCollection.insertOne(linkData);
+      res.send(result);
+    });
+
+
 
 
 
