@@ -51,6 +51,7 @@ async function run() {
     const adoptedPets = client.db("PawkieDB").collection("adoptedPets")
     const doctorCollection = client.db("PawkieDB").collection("doctors")
     const linkCollection = client.db("PawkieDB").collection("link")
+    const reviewCollection = client.db("PawkieDB").collection("reviews")
 
     // jwt
     app.post('/jwt', async (req, res) => {
@@ -1274,7 +1275,7 @@ async function run() {
       }
     });
 
-    
+
 
 
 
@@ -1385,7 +1386,8 @@ async function run() {
       const query = {
         userId: userId,
         doctorEmail: doctorEmail,
-        link: link
+        link: link,
+        IPO: false
       };
 
       const existingLink = await linkCollection.findOne(query);
@@ -1399,20 +1401,81 @@ async function run() {
       const result = await linkCollection.insertOne(linkData);
       res.send(result);
     });
-    
-    app.get("/api/links", async (req, res) => {
+
+    app.get('/api/links', async (req, res) => {
+      const { userId, doctorEmail } = req.query;
+
+      const query = {};
+      if (userId) query.userId = userId;
+      if (doctorEmail) query.doctorEmail = doctorEmail;
+
       try {
-        const links = await Link.find();
-        res.json(links);
-      } catch (err) {
-        res.status(500).json({ message: "Failed to fetch links" });
+        const links = await linkCollection.find(query).toArray();
+        res.send(links);
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to fetch links', error });
       }
     });
+
+    // app.patch('/users/IPO', async (req, res) => {
+    //   const { userId, IPO } = req.body; // ✅ Destructure properly
     
-    app.listen(port, () => {
-      console.log(`✅ Server running on http://localhost:${port}`);
+    //   try {
+    //     const updatedUser = await User.findByIdAndUpdate(
+    //       userId,
+    //       { IPO: IPO },
+    //       { new: true }
+    //     );
+    
+    //     if (!updatedUser) {
+    //       return res.status(404).json({ message: 'User not found.' });
+    //     }
+    
+    //     res.status(200).json(updatedUser);
+    //   } catch (error) {
+    //     console.error('Error updating IPO status:', error);
+    //     res.status(500).json({ message: 'Server error while updating IPO status.' });
+    //   }
+    // });
+    
+
+
+
+
+
+
+    // Reviews
+    // Reviews
+    app.get('/reviews', async (req, res) => {
+      try {
+        const reviews = await reviewCollection.find().toArray();
+        res.send(reviews);
+      } catch (error) {
+        console.error('Error fetching reviews:', error);
+        res.status(500).send({ message: 'Failed to fetch reviews' });
+      }
     });
 
+    app.post('/reviews', async (req, res) => {
+      try {
+        console.log("Received request body:", req.body); // Debugging log
+
+        const { user, comment, rating } = req.body;
+
+        if (!user || !comment || rating === undefined) {
+          return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        // Ensure `rating` is stored as a number
+        const newReview = { user, comment, rating: Number(rating), timestamp: new Date() };
+
+        const result = await reviewCollection.insertOne(newReview);
+        res.status(201).json({ message: 'Review added successfully', review: newReview });
+      } catch (error) {
+        console.error('Error adding review:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+      }
+    });
 
 
 
