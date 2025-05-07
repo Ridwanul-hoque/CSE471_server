@@ -238,23 +238,52 @@ async function run() {
 
 
     // Adoption Routes
-    app.post('/api/adopt', upload.array('images'), async (req, res) => {
-      const { ownerName, contact, address, petName, petBreed, petColor, petAge } = req.body;
-      const images = req.files;
+    // app.post('/api/adopt', upload.array('images'), async (req, res) => {
+    //   const { ownerName, contact, address, petName, petBreed, petColor, petAge } = req.body;
+    //   const images = req.files;
 
-      if (!ownerName || !contact || !address || !petName || !petBreed || !petColor || !petAge || !images.length) {
-        return res.status(400).json({ message: 'All fields including images are required.' });
+    //   if (!ownerName || !contact || !address || !petName || !petBreed || !petColor || !petAge || !images.length) {
+    //     return res.status(400).json({ message: 'All fields including images are required.' });
+    //   }
+
+    //   const pet = {
+    //     ownerName, contact, address, petName, petBreed, petColor, petAge,
+    //     images: images.map(img => `/uploads/${img.filename}`),
+    //     createdAt: new Date(),
+    //   };
+
+    //   const result = await petsCollection.insertOne(pet);
+    //   res.status(200).json({ message: 'Adoption post saved!', petId: result.insertedId });
+    // });
+    app.post('/api/adopt', async (req, res) => {
+      try {
+        const { ownerName, contact, address, petName, petBreed, petColor, petAge, email, images } = req.body;
+
+        if (!ownerName || !contact || !address || !petName || !petBreed || !petColor || !petAge || !images || !email) {
+          return res.status(400).json({ message: 'All fields including images and email are required.' });
+        }
+
+        const pet = {
+          ownerName,
+          contact,
+          address,
+          petName,
+          petBreed,
+          petColor,
+          petAge,
+          email, // ✅ Save user email
+          images, // ✅ Save imgbb image URLs
+          createdAt: new Date(),
+        };
+
+        const result = await petsCollection.insertOne(pet);
+        res.status(200).json({ message: 'Adoption post saved!', petId: result.insertedId });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error.' });
       }
-
-      const pet = {
-        ownerName, contact, address, petName, petBreed, petColor, petAge,
-        images: images.map(img => `/uploads/${img.filename}`),
-        createdAt: new Date(),
-      };
-
-      const result = await petsCollection.insertOne(pet);
-      res.status(200).json({ message: 'Adoption post saved!', petId: result.insertedId });
     });
+
 
     app.get('/api/adopt', async (req, res) => {
       try {
@@ -282,37 +311,68 @@ async function run() {
 
 
     // Upload Missing Pet Post
-    app.post('/api/missing-pet', upload.single('image'), async (req, res) => {
-      const { description } = req.body;
-      const imageFile = req.file;
+    // app.post('/api/missing-pet', upload.single('image'), async (req, res) => {
+    //   const { description } = req.body;
+    //   const imageFile = req.file;
 
-      if (!description || !imageFile) {
-        return res.status(400).json({ message: 'Description and image are required.' });
+    //   if (!description || !imageFile) {
+    //     return res.status(400).json({ message: 'Description and image are required.' });
+    //   }
+
+    //   const fs = require('fs');
+    //   const imageBuffer = fs.readFileSync(imageFile.path);
+    //   const base64Image = imageBuffer.toString('base64');
+
+    //   const newPost = {
+    //     description,
+    //     image: base64Image,
+    //     imageType: imageFile.mimetype,
+    //     createdAt: new Date(),
+    //     comments: [] // <--- New field for storing comments
+    //   };
+
+    //   const result = await missingPostsCollection.insertOne(newPost);
+
+    //   // Optional: delete the local file after saving to DB
+    //   fs.unlinkSync(imageFile.path);
+
+    //   res.status(200).json({
+    //     message: 'Post submitted successfully!',
+    //     postId: result.insertedId,
+    //     post: newPost
+    //   });
+    // });
+    app.post('/api/missing-pet', async (req, res) => {
+      const { description, image, userName, userEmail, userImage } = req.body;
+
+      if (!description || !image || !userName || !userEmail || !userImage) {
+        return res.status(400).json({ message: 'All fields are required.' });
       }
-
-      const fs = require('fs');
-      const imageBuffer = fs.readFileSync(imageFile.path);
-      const base64Image = imageBuffer.toString('base64');
 
       const newPost = {
         description,
-        image: base64Image,
-        imageType: imageFile.mimetype,
+        image,
+        userName,
+        userEmail,
+        userImage, // <-- store user image
         createdAt: new Date(),
-        comments: [] // <--- New field for storing comments
+        comments: []
       };
 
-      const result = await missingPostsCollection.insertOne(newPost);
+      try {
+        const result = await missingPostsCollection.insertOne(newPost);
 
-      // Optional: delete the local file after saving to DB
-      fs.unlinkSync(imageFile.path);
-
-      res.status(200).json({
-        message: 'Post submitted successfully!',
-        postId: result.insertedId,
-        post: newPost
-      });
+        res.status(200).json({
+          message: 'Post submitted successfully!',
+          postId: result.insertedId,
+          post: newPost
+        });
+      } catch (error) {
+        console.error('DB Insert Error:', error);
+        res.status(500).json({ message: 'Failed to save post.' });
+      }
     });
+
     app.get('/api/missing-pet', async (req, res) => {
       try {
         const posts = await missingPostsCollection.find({}).toArray();
@@ -347,6 +407,55 @@ async function run() {
 
       res.status(200).json({ message: 'Comment added successfully', comment });
     });
+    app.delete('/api/missing-pet/:id', async (req, res) => {
+      const postId = req.params.id;
+
+      try {
+        const result = await missingPostsCollection.deleteOne({ _id: new ObjectId(postId) });
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: 'Post not found or not deleted' });
+        }
+
+        res.status(200).json({ message: 'Post deleted successfully' });
+      } catch (error) {
+        console.error('Delete error:', error);
+        res.status(500).json({ message: 'Failed to delete post' });
+      }
+    });
+    // app.get('/api/missing-pet', async (req, res) => {
+    //   try {
+    //     const posts = await missingPostsCollection.find({}).toArray();
+    //     res.status(200).json(posts);
+    //   } catch (error) {
+    //     res.status(500).json({ message: 'Failed to fetch missing pet posts.' });
+    //   }
+    // });
+
+    // app.post('/api/missing-posts/:id/comments', async (req, res) => {
+    //   const postId = req.params.id;
+    //   const { userName, text } = req.body;
+
+    //   if (!userName || !text) {
+    //     return res.status(400).json({ message: 'User name and comment text are required' });
+    //   }
+
+    //   const comment = {
+    //     userName,
+    //     text,
+    //     createdAt: new Date(),
+    //   };
+
+    //   const result = await missingPostsCollection.updateOne(
+    //     { _id: new ObjectId(postId) },
+    //     { $push: { comments: comment } }
+    //   );
+
+    //   if (result.modifiedCount === 0) {
+    //     return res.status(404).json({ message: 'Post not found or comment not added' });
+    //   }
+
+    //   res.status(200).json({ message: 'Comment added successfully', comment });
+    // });
 
     // Get all posts
     app.get('/api/missing-posts', async (req, res) => {
@@ -355,30 +464,55 @@ async function run() {
     });
 
     // Upload Rescueing Pet Post
-    app.post('/api/rescue-pet', upload.single('image'), async (req, res) => {
-      const { details } = req.body;
-      const imageFile = req.file;
+    // app.post('/api/rescue-pet', upload.single('image'), async (req, res) => {
+    //   const { details } = req.body;
+    //   const imageFile = req.file;
 
-      if (!details || !imageFile) {
-        return res.status(400).json({ message: 'details and image are required.' });
+    //   if (!details || !imageFile) {
+    //     return res.status(400).json({ message: 'details and image are required.' });
+    //   }
+
+    //   const fs = require('fs');
+    //   const imageBuffer = fs.readFileSync(imageFile.path);
+    //   const base64Image = imageBuffer.toString('base64');
+
+    //   const newPost = {
+    //     details,
+    //     image: base64Image,
+    //     imageType: imageFile.mimetype,
+    //     createdAt: new Date(),
+    //     comments: [] // <--- New field for storing comments
+    //   };
+
+    //   const result = await rescuePostsCollection.insertOne(newPost);
+
+    //   // Optional: delete the local file after saving to DB
+    //   fs.unlinkSync(imageFile.path);
+
+    //   res.status(200).json({
+    //     message: 'Post submitted successfully!',
+    //     postId: result.insertedId,
+    //     post: newPost
+    //   });
+    // });
+    app.post('/api/rescue-pet', async (req, res) => {
+      const { details, image, userEmail, userName, userImage } = req.body;
+
+      if (!details || !image || !userEmail || !userName || !userImage) {
+        return res.status(400).json({ message: 'All fields are required.' });
       }
-
-      const fs = require('fs');
-      const imageBuffer = fs.readFileSync(imageFile.path);
-      const base64Image = imageBuffer.toString('base64');
 
       const newPost = {
         details,
-        image: base64Image,
-        imageType: imageFile.mimetype,
+        image, // imgbb URL
+        userEmail,
+        userName,
+        userImage, // ✅ include user image here
         createdAt: new Date(),
-        comments: [] // <--- New field for storing comments
+        comments: []
       };
 
       const result = await rescuePostsCollection.insertOne(newPost);
-
-      // Optional: delete the local file after saving to DB
-      fs.unlinkSync(imageFile.path);
 
       res.status(200).json({
         message: 'Post submitted successfully!',
@@ -386,6 +520,7 @@ async function run() {
         post: newPost
       });
     });
+
 
     app.post('/api/rescue-posts/:id/comments', async (req, res) => {
       const postId = req.params.id;
@@ -434,6 +569,21 @@ async function run() {
       } catch (error) {
         console.error('Error fetching rescue posts:', error);
         res.status(500).json({ message: 'Failed to fetch rescue posts' });
+      }
+    });
+    app.delete('/api/rescue-posts/:id', async (req, res) => {
+      const postId = req.params.id;
+
+      try {
+        const result = await rescuePostsCollection.deleteOne({ _id: new ObjectId(postId) });
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: 'Post not found or not deleted' });
+        }
+
+        res.status(200).json({ message: 'Rescue post deleted successfully' });
+      } catch (error) {
+        console.error('Delete rescue post error:', error);
+        res.status(500).json({ message: 'Failed to delete rescue post' });
       }
     });
 
@@ -603,11 +753,44 @@ async function run() {
     });
 
     // Update product
-    app.put('/api/products/:id', upload.single('image'), async (req, res) => {
+    // app.put('/api/products/:id', upload.single('image'), async (req, res) => {
+    //   try {
+    //     const productId = req.params.id;
+    //     const { name, description, price, category, stockQuantity } = req.body;
+    //     const imageFile = req.file;
+
+    //     const updateData = {
+    //       name,
+    //       description,
+    //       price: parseFloat(price),
+    //       category,
+    //       stockQuantity: parseInt(stockQuantity),
+    //       updatedAt: new Date()
+    //     };
+
+    //     if (imageFile) {
+    //       updateData.image = `/uploads/${imageFile.filename}`;
+    //     }
+
+    //     const result = await productsCollection.updateOne(
+    //       { _id: new ObjectId(productId) },
+    //       { $set: updateData }
+    //     );
+
+    //     if (result.matchedCount === 0) {
+    //       return res.status(404).json({ message: 'Product not found' });
+    //     }
+
+    //     res.status(200).json({ message: 'Product updated successfully' });
+    //   } catch (error) {
+    //     console.error('Error updating product:', error);
+    //     res.status(500).json({ message: 'Server error' });
+    //   }
+    // });
+    app.put('/api/products/:id', async (req, res) => {
       try {
         const productId = req.params.id;
-        const { name, description, price, category, stockQuantity } = req.body;
-        const imageFile = req.file;
+        const { name, description, price, category, stockQuantity, image } = req.body;
 
         const updateData = {
           name,
@@ -618,8 +801,8 @@ async function run() {
           updatedAt: new Date()
         };
 
-        if (imageFile) {
-          updateData.image = `/uploads/${imageFile.filename}`;
+        if (image) {
+          updateData.image = image; // Hosted ImgBB URL
         }
 
         const result = await productsCollection.updateOne(
@@ -637,6 +820,7 @@ async function run() {
         res.status(500).json({ message: 'Server error' });
       }
     });
+
 
     // Delete product
     app.delete('/api/products/:id', async (req, res) => {
@@ -1081,6 +1265,17 @@ async function run() {
       }
     });
 
+    app.get('/api/prescriptions', async (req, res) => {
+      try {
+        const prescriptions = await prescriptionsCollection.find().toArray();
+        res.status(200).json(prescriptions);
+      } catch (err) {
+        res.status(500).json({ message: 'Failed to fetch prescriptions' });
+      }
+    });
+
+    
+
 
 
     // app.get('/api/prescriptions', async (req, res) => {
@@ -1156,6 +1351,25 @@ async function run() {
       }
     });
 
+    app.put('/doctors/:email', async (req, res) => {
+      const { email } = req.params;
+      const { _id, ...fieldsToUpdate } = req.body; // destructure _id out, but don't modify it
+
+      try {
+        const result = await doctorCollection.updateOne(
+          { email },
+          { $set: fieldsToUpdate }
+        );
+        res.send(result);
+      } catch (error) {
+        console.error('❌ Error updating doctor info:', error);
+        res.status(500).send({ error: 'Failed to update doctor info' });
+      }
+    });
+
+
+
+
 
 
 
@@ -1184,6 +1398,19 @@ async function run() {
 
       const result = await linkCollection.insertOne(linkData);
       res.send(result);
+    });
+    
+    app.get("/api/links", async (req, res) => {
+      try {
+        const links = await Link.find();
+        res.json(links);
+      } catch (err) {
+        res.status(500).json({ message: "Failed to fetch links" });
+      }
+    });
+    
+    app.listen(port, () => {
+      console.log(`✅ Server running on http://localhost:${port}`);
     });
 
 
